@@ -40,6 +40,35 @@ RSpec.describe Homebrew::Diagnostic::Checks do
       )
     end
 
+    it "prints an Intelbrew notice instead of a finding on Intel with the Intelbrew core remote" do
+      macos_version = MacOSVersion.new("26")
+      allow(Hardware::CPU).to receive(:intel?).and_return(true)
+      allow(OS::Mac).to receive_messages(version: macos_version, full_version: macos_version)
+      allow(OS::Mac.version).to receive_messages(outdated_release?: false, prerelease?: false)
+      allow(Homebrew::EnvConfig).to receive(:core_git_remote)
+        .and_return("https://github.com/d4rkwyng/intelbrew-core")
+      OS::Mac::Diagnostic::Checks.reset_intelbrew_notice!
+
+      expect do
+        expect(checks.check_for_unsupported_macos).to be_nil
+        expect(checks.check_for_unsupported_macos).to be_nil
+      end.to output("Intelbrew: bottles from d4rkwyng/intelbrew-core\n").to_stderr
+    end
+
+    it "prints the Intelbrew notice instead of the outdated-release finding with the Intelbrew core" do
+      macos_version = MacOSVersion.new("14")
+      allow(Hardware::CPU).to receive(:intel?).and_return(true)
+      allow(OS::Mac).to receive_messages(version: macos_version, full_version: macos_version)
+      allow(OS::Mac.version).to receive_messages(outdated_release?: true, prerelease?: false)
+      allow(Homebrew::EnvConfig).to receive(:core_git_remote)
+        .and_return("https://github.com/d4rkwyng/intelbrew-core")
+      OS::Mac::Diagnostic::Checks.reset_intelbrew_notice!
+
+      expect do
+        expect(checks.check_for_unsupported_macos).to be_nil
+      end.to output("Intelbrew: bottles from d4rkwyng/intelbrew-core\n").to_stderr
+    end
+
     it "preserves the remediation for outdated macOS on Intel" do
       macos_version = MacOSVersion.new("13")
       allow(Hardware::CPU).to receive(:intel?).and_return(true)

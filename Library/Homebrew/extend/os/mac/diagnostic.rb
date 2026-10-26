@@ -52,6 +52,19 @@ module OS
 
         requires_ancestor { Homebrew::Diagnostic::Checks }
 
+        sig { void }
+        def self.intelbrew_notice
+          return if @intelbrew_notice_shown
+
+          @intelbrew_notice_shown = T.let(true, T.nilable(T::Boolean))
+          $stderr.puts "Intelbrew: bottles from d4rkwyng/intelbrew-core"
+        end
+
+        sig { void }
+        def self.reset_intelbrew_notice!
+          @intelbrew_notice_shown = T.let(nil, T.nilable(T::Boolean))
+        end
+
         sig { params(verbose: T::Boolean).void }
         def initialize(verbose: true)
           super
@@ -130,6 +143,14 @@ module OS
         def check_for_unsupported_macos
           return if Homebrew::EnvConfig.developer?
           return if ENV["HOMEBREW_INTEGRATION_TEST"]
+
+          # Intelbrew: on Intel, bottles come from the d4rkwyng/intelbrew-core tap (Sonoma
+          # and newer), so neither the Intel nor the outdated-release notice applies; note
+          # it once and move on.
+          if ::Hardware::CPU.intel? && Homebrew::EnvConfig.core_git_remote.include?("d4rkwyng/intelbrew-core")
+            Checks.intelbrew_notice
+            return
+          end
 
           tier = 2
           who = +"We"
