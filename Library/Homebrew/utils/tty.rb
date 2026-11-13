@@ -161,20 +161,27 @@ module Tty
 
     sig { returns(Integer) }
     def height
-      size&.first || @height ||= T.let(
-        Utils.popen_read_text("/usr/bin/tput", "lines", err: File::NULL).presence&.to_i || 40,
-        T.nilable(Integer),
-      )
+      size&.first || (@height ||= T.let(tput("lines", default: 40), T.nilable(Integer))) || 40
     end
 
     # Keep in sync with `columns` in Library/Homebrew/utils/tty.sh.
     sig { returns(Integer) }
     def width
-      size&.second || @width ||= T.let(
-        Utils.popen_read_text("/usr/bin/tput", "cols", err: File::NULL).presence&.to_i || 80,
-        T.nilable(Integer),
-      )
+      size&.second || (@width ||= T.let(tput("cols", default: 80), T.nilable(Integer))) || 80
     end
+
+    # Returns `nil` without caching when `tput` cannot be run, e.g. when the
+    # process is out of file descriptors; a size is only cosmetic, so it must
+    # not turn that error into another one.
+    sig { params(capability: String, default: Integer).returns(T.nilable(Integer)) }
+    def tput(capability, default:)
+      Utils.popen_read_text("/usr/bin/tput", capability, err: File::NULL).presence&.to_i || default
+    # Ruby's `IO.popen("-")` raises `TypeError` rather than `Errno::EMFILE`
+    # when it cannot create its pipe.
+    rescue SystemCallError, TypeError
+      nil
+    end
+    private :tput
 
     sig { params(string: String).returns(String) }
     def truncate(string)

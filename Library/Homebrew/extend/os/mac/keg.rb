@@ -156,6 +156,28 @@ module OS
         EOS
       end
 
+      # Each `codesign` shell-out briefly holds three pipes (six descriptors),
+      # `Process.spawn`'s two-descriptor status pipe and possibly `Tty.width`'s
+      # `tput` pipe, so budget this many descriptors per signing thread.
+      CODESIGN_DESCRIPTORS_PER_THREAD = 10
+      # Leave descriptors free for the main thread and whatever else is running.
+      CODESIGN_DESCRIPTOR_RESERVE = 16
+      private_constant :CODESIGN_DESCRIPTORS_PER_THREAD, :CODESIGN_DESCRIPTOR_RESERVE
+
+      # macOS defaults to a soft limit of 256 descriptors, and a parent
+      # process may already have passed many of them down to us, so size the
+      # signing pool by the descriptors actually free rather than by CPU count.
+      sig { params(files: T::Array[::Pathname]).returns(Integer) }
+      def codesign_thread_count(files)
+        threads = [files.length, ::Hardware::CPU.cores].min
+        soft_limit = Process.getrlimit(:NOFILE).first
+        # `/dev/fd` lists this process's open descriptors (plus the one used to read it).
+        free = soft_limit - Dir.children("/dev/fd").length - CODESIGN_DESCRIPTOR_RESERVE
+        (free / CODESIGN_DESCRIPTORS_PER_THREAD).clamp(1, threads)
+      rescue SystemCallError
+        1
+      end
+
       sig { params(files: T::Array[::Pathname]).void }
       def codesign_patched_binaries(files)
         return if files.empty?
@@ -165,7 +187,7 @@ module OS
         queue = Queue.new
         files.each { queue << it }
         queue.close
-        Array.new([files.length, ::Hardware::CPU.cores].min) do
+        Array.new(codesign_thread_count(files)) do
           Thread.new do
             while (file = queue.pop)
               # Signing rewrites the file, which may not be user-writable.

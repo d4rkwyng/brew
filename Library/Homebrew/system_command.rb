@@ -539,6 +539,10 @@ class SystemCommand
     ).returns([IO, IO, IO, Thread])
   }
   def exec3(env, executable, *args, **options)
+    # Read the width before opening our pipes, as reading it may need a
+    # `tput` subprocess and so more file descriptors of its own.
+    exec_env = env.merge({ "COLUMNS" => Tty.width.to_s })
+
     in_r, in_w = IO.pipe
     options[:in] = in_r
     in_w.sync = true
@@ -549,7 +553,6 @@ class SystemCommand
     err_r, err_w = IO.pipe
     options[:err] = err_w
 
-    exec_env = env.merge({ "COLUMNS" => Tty.width.to_s })
     if (inheritance = @sandbox_inheritance)
       options = options.merge(Sandbox::INHERITANCE_FD => inheritance)
     end

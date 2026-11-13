@@ -171,6 +171,32 @@ RSpec.describe Tty do
       expect(described_class.width).to be_a(Integer)
       expect(described_class.width).to be >= 0
     end
+
+    context "when stdin is not a terminal" do
+      before do
+        described_class.size_stale!
+        allow($stdin).to receive(:tty?).and_return(false)
+      end
+
+      after { described_class.size_stale! }
+
+      it "falls back to defaults without caching them when `tput` cannot create a pipe" do
+        # `IO.popen("-")` raises `TypeError` instead of `Errno::EMFILE` when it
+        # cannot create its pipe.
+        allow(Utils).to receive(:popen_read_text).and_raise(TypeError, "no implicit conversion of false into String")
+
+        expect([described_class.width, described_class.height]).to eq([80, 40])
+
+        allow(Utils).to receive(:popen_read_text).with("/usr/bin/tput", "cols", err: File::NULL).and_return("132\n")
+        expect(described_class.width).to eq(132)
+      end
+
+      it "falls back to defaults when `tput` cannot be spawned" do
+        allow(Utils).to receive(:popen_read_text).and_raise(Errno::EMFILE)
+
+        expect([described_class.width, described_class.height]).to eq([80, 40])
+      end
+    end
   end
 
   describe "::truncate" do

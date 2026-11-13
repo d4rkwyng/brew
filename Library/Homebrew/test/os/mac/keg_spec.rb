@@ -261,5 +261,55 @@ RSpec.describe Keg do
 
       keg.codesign_patched_binaries(files)
     end
+
+    it "codesigns every file on one thread when file descriptors are scarce" do
+      many_files = Array.new(8) { |i| keg_path/"bin/f#{i}" }
+      many_files.each { |file| touch file }
+      allow(Hardware::CPU).to receive(:cores).and_return(8)
+      # Only a handful of descriptors left below the soft limit.
+      allow(Process).to receive(:getrlimit).with(:NOFILE).and_return([256, 256])
+      allow(Dir).to receive(:children).and_call_original
+      allow(Dir).to receive(:children).with("/dev/fd").and_return(Array.new(245, "x"))
+
+      threads = Set.new
+      expect(keg).to receive(:codesign_patched_binary).exactly(8).times { threads << Thread.current }
+
+      keg.codesign_patched_binaries(many_files)
+
+      expect(threads.size).to eq(1)
+    end
+  end
+
+  describe "#codesign_thread_count" do
+    let(:files) { Array.new(20) { |i| Pathname("/f#{i}") } }
+
+    before do
+      keg_path.mkpath
+      allow(Hardware::CPU).to receive(:cores).and_return(16)
+      allow(Dir).to receive(:children).and_call_original
+    end
+
+    after { keg.unlink }
+
+    it "uses one thread per core when file descriptors are plentiful" do
+      allow(Process).to receive(:getrlimit).with(:NOFILE).and_return([256, 256])
+      allow(Dir).to receive(:children).with("/dev/fd").and_return(Array.new(7, "x"))
+
+      expect(keg.codesign_thread_count(files)).to eq(16)
+    end
+
+    it "uses fewer threads when a parent already holds most file descriptors" do
+      allow(Process).to receive(:getrlimit).with(:NOFILE).and_return([256, 256])
+      allow(Dir).to receive(:children).with("/dev/fd").and_return(Array.new(200, "x"))
+
+      expect(keg.codesign_thread_count(files)).to eq(4)
+    end
+
+    it "uses one thread when open file descriptors cannot be counted" do
+      allow(Process).to receive(:getrlimit).with(:NOFILE).and_return([256, 256])
+      allow(Dir).to receive(:children).with("/dev/fd").and_raise(Errno::EMFILE)
+
+      expect(keg.codesign_thread_count(files)).to eq(1)
+    end
   end
 end
